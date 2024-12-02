@@ -4,8 +4,8 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <omp.h>
 #include "dataserver.h"
-
 
 int chunkSize = 2 * 1024 * 1024;
 
@@ -34,38 +34,54 @@ void DataServer::operator()(){
     }
 }
 
-
 void DataServer::put(){
     int start = 0;
     std::ofstream os;
-    while(start < bufSize ){
+    #pragma omp parallel for private(os)
+    for(start = 0; start < bufSize; start += chunkSize){
         int offset = start / chunkSize;
         std::string filePath = name_ + "/" + std::to_string(fid) + " " + std::to_string(offset);
         os.open(filePath);
         if(!os)
             std::cerr << "create file error in dataserver: (file name) " << filePath << std::endl;
         os.write(&buf[start], std::min(chunkSize, bufSize - start));
-        start += chunkSize;
         os.close();
+        #pragma omp critical
+        {
+            std::cout << "Written chunk to file: " << filePath << std::endl;
+        }
     }
 }
-
 
 void DataServer::read(){
     int start = 0;
     buf = new char[bufSize];
-    while(start < bufSize){
+    bool fileNotFound = false;
+    #pragma omp parallel for
+    for(start = 0; start < bufSize; start += chunkSize){
         int offset = start / chunkSize;
         std::string filePath = name_ + "/" + std::to_string(fid) + " " + std::to_string(offset);
         std::ifstream is(filePath);
         // file found not in this server.
         if(!is){
-            delete []buf;
-            bufSize = 0;
-            break;
+            #pragma omp critical
+            {
+                delete []buf;
+                bufSize = 0;
+                std::cerr << "File not found: " << filePath << std::endl;
+                fileNotFound = true;
+            }
+        } else {
+            is.read(&buf[start], std::min(chunkSize, bufSize - start));
+            #pragma omp critical
+            {
+                std::cout << "Read chunk from file: " << filePath << std::endl;
+            }
         }
-        is.read(&buf[start], std::min(chunkSize, bufSize - start));
-        start += chunkSize;
+    }
+    if(fileNotFound) {
+        delete []buf;
+        bufSize = 0;
     }
 }
 
@@ -77,13 +93,14 @@ void DataServer::fetch(){
     if(!is){
         delete []buf;
         bufSize = 0;
+        std::cerr << "File not found: " << filePath << std::endl;
     }
     else{
         is.read(buf, std::min(chunkSize, bufSize - chunkSize * offset));
         bufSize = is.tellg();
+        std::cout << "Fetched chunk from file: " << filePath << std::endl;
     }
 }
-
 
 void DataServer::locate(){
     std::string filePath = name_ + "/" + std::to_string(fid) + " " + std::to_string(offset);
@@ -92,6 +109,7 @@ void DataServer::locate(){
         bufSize = 1;
     else
         bufSize = 0;
+    std::cout << "Located file: " << filePath << " with bufSize: " << bufSize << std::endl;
 }
 
 std::string DataServer::get_name()const{

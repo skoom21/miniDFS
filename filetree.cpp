@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <cmath>
+#include <omp.h>
 #include "filetree.h"
 #include "util.h"
 
@@ -47,10 +48,17 @@ bool FileTree::find_node(const std::string &path, TreeNode **last_node)const{
 void FileTree::list(TreeNode *node, std::map<std::string, std::pair<int, int>>& meta){
     static int chunkSize = 2 * 1024 * 1024;
     if(node){
-        std::cout << node->value_ << "\t" << meta[node->value_].first << "\t" << (int)ceil(1.0 * meta[node->value_].second/chunkSize) << std::endl;
-        // std::cout << node->value_ << "\t" << std::endl;
-        list(node->firstSon, meta);
-        list(node->nextSibling, meta);
+        #pragma omp parallel
+        {
+            #pragma omp single nowait
+            {
+                std::cout << node->value_ << "\t" << meta[node->value_].first << "\t" << (int)ceil(1.0 * meta[node->value_].second/chunkSize) << std::endl;
+                #pragma omp task
+                list(node->firstSon, meta);
+                #pragma omp task
+                list(node->nextSibling, meta);
+            }
+        }
     }
 }
 

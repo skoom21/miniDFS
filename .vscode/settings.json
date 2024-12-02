@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "*.ipynb": "python",
+        "condition_variable": "cpp"
+    }
+}

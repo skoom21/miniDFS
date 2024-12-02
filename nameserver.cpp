@@ -3,19 +3,18 @@
 #include <vector>
 #include <sstream>
 #include <fstream>
+#include <omp.h>
 #include "nameserver.h"
 #include "util.h"
 
-
 NameServer::NameServer(int numReplicate):numReplicate_(numReplicate), idCnt_(0){}
-
 
 void NameServer::add(DataServer *server){
     dataServers_.push_back(server);
 }
 
 std::vector<std::string> NameServer::parse_cmd(){
-    std::cout << "MiniDFS> ";
+    std::cout << "ShardDrive> ";
     std::string cmd, tmp;
     std::getline(std::cin, cmd);
     std::vector<std::string> parameters;
@@ -77,6 +76,7 @@ void NameServer::operator()(){
                 idx = argsort<double>(serverSize);
                 // std::cout << "total size " << totalSize << std::endl;
                 ++idCnt_;
+                #pragma omp parallel for
                 for(int i=0; i<numReplicate_; ++i){
                     std::unique_lock<std::mutex> lk(dataServers_[idx[i]]->mtx);
                     meta[parameters[2]] = std::make_pair(idCnt_, totalSize);
@@ -102,6 +102,7 @@ void NameServer::operator()(){
                     std::cerr << "error: no such file in miniDFS." << std::endl;
                     continue;
                 }
+                #pragma omp parallel for
                 for(int i=0; i<4; ++i){
                     std::unique_lock<std::mutex> lk(dataServers_[i]->mtx);
                     dataServers_[i]->cmd = parameters[0];
@@ -127,6 +128,7 @@ void NameServer::operator()(){
                 continue;
             }
             else{
+                #pragma omp parallel for
                 for(int i=0; i<4; ++i){
                     std::unique_lock<std::mutex> lk(dataServers_[i]->mtx);
                     dataServers_[i]->cmd = "locate";
@@ -142,16 +144,18 @@ void NameServer::operator()(){
             std::cerr << "wrong command." << std::endl;
 
         // waiting for the finish of data server.
-        for(const auto &server: dataServers_){
-            std::unique_lock<std::mutex> lk(server->mtx);
-            (server->cv).wait(lk, [&](){return server->finish;});
+        #pragma omp parallel for
+        for(int i = 0; i < dataServers_.size(); ++i){
+            std::unique_lock<std::mutex> lk(dataServers_[i]->mtx);
+            (dataServers_[i]->cv).wait(lk, [&](){return dataServers_[i]->finish;});
             lk.unlock();
-            (server->cv).notify_all();
+            (dataServers_[i]->cv).notify_all();
         }
 
         // work after processing of data server
         if(parameters[0] == "read" || parameters[0] == "fetch"){
             std::string md5_checksum, pre_checksum;
+            #pragma omp parallel for
             for (int i=0; i<4; ++i){
                 if(dataServers_[i]->bufSize){
                     std::ofstream os;
@@ -181,6 +185,7 @@ void NameServer::operator()(){
         }
         else if (parameters[0] == "locate" || parameters[0] == "ls") {
             bool notFound = true;
+            #pragma omp parallel for
             for(int i=0; i<4; ++i){
                 if(dataServers_[i]->bufSize){
                     notFound = false;

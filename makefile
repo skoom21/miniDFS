@@ -1,2 +1,2 @@
-miniDFS:
-	g++ -std=c++11 *.cpp -pthread -o miniDFS
+ShardDrive:
+	g++ -std=c++11 *.cpp -pthread -fopenmp -o ShardDrive
